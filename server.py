@@ -207,10 +207,7 @@ async def get_user_profile(params: GetUserProfileInput) -> str:
     - 查看项目方/KOL 的账号信息和影响力
     - 对比不同项目的官方推特规模
     """
-    data = await api_request(
-        "/twitter/user/by-screen-name",
-        params={"screen_name": params.screen_name},
-    )
+    data = await api_request(f"/twitter/user/{params.screen_name}")
     if "error" in data:
         return f"获取用户资料失败: {data['error']}"
 
@@ -247,10 +244,7 @@ async def get_user_tweets(params: GetUserTweetsInput) -> str:
     - 分析某人的发推频率和互动数据
     """
     # 先获取 user_id
-    user_data = await api_request(
-        "/twitter/user/by-screen-name",
-        params={"screen_name": params.screen_name},
-    )
+    user_data = await api_request(f"/twitter/user/{params.screen_name}")
     if "error" in user_data:
         return f"获取用户信息失败: {user_data['error']}"
 
@@ -352,14 +346,14 @@ async def get_tweet_replies(params: GetTweetRepliesInput) -> str:
     cursor = None
 
     for page in range(params.max_pages):
-        p = {
-            "query": f"conversation_id:{params.tweet_id}",
-            "type": "Latest",
-        }
+        p = {}
         if cursor:
             p["cursor"] = cursor
 
-        data = await api_request("/twitter/search", params=p)
+        data = await api_request(
+            f"/twitter/tweets/{params.tweet_id}/comments",
+            params=p,
+        )
         if "error" in data:
             return f"获取回复失败: {data['error']}"
 
