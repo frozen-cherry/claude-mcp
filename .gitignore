@@ -12,3 +12,4 @@ build/
 # IDE
 .vscode/
 .idea/
+test_endpoints.py

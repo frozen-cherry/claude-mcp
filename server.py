@@ -406,7 +406,7 @@ async def get_community_tweets(params: GetCommunityTweetsInput) -> str:
     cursor = None
 
     for page in range(params.max_pages):
-        p = {}
+        p = {"type": "Latest"}
         if cursor:
             p["cursor"] = cursor
 
@@ -438,42 +438,6 @@ async def get_community_tweets(params: GetCommunityTweetsInput) -> str:
     return "\n".join(results)
 
 
-class SearchUsersInput(BaseModel):
-    """搜索用户的参数"""
-    query: str = Field(
-        description="搜索用户名或关键词"
-    )
-
-
-@mcp.tool(
-    name="twitter_search_users",
-    annotations={"readOnlyHint": True, "openWorldHint": True},
-)
-async def search_users(params: SearchUsersInput) -> str:
-    """通过关键词搜索 Twitter 用户。
-    
-    适用场景:
-    - 查找项目的官方推特账号
-    - 搜索相关 KOL
-    """
-    data = await api_request(
-        "/twitter/user/search",
-        params={"query": params.query},
-    )
-    if "error" in data:
-        return f"搜索用户失败: {data['error']}"
-
-    users = data.get("users", [])
-    if not users:
-        return f"未找到与 '{params.query}' 相关的用户。"
-
-    results = [f"=== 用户搜索: {params.query} | 共 {len(users)} 个 ===\n"]
-    for i, user in enumerate(users, 1):
-        results.append(f"--- [{i}] ---")
-        results.append(format_user(user))
-        results.append("")
-
-    return "\n".join(results)
 
 
 # ============================================================
