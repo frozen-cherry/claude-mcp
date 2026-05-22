@@ -14,7 +14,7 @@ import httpx
 from datetime import datetime
 from typing import Optional
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from mcp.server.fastmcp import FastMCP
 
 # 从 .env 文件加载环境变量
@@ -67,25 +67,38 @@ async def api_request(endpoint: str, params: dict = None) -> dict:
 # 格式化工具
 # ============================================================
 
+def _safe_int(value, default: int = 0) -> int:
+    """安全地将值转为整数，None 或异常时返回默认值"""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def format_tweet(tweet: dict) -> str:
     """将推文格式化为可读文本"""
-    user = tweet.get("user", {})
+    if not tweet:
+        return "(空推文)"
+
+    user = tweet.get("user") or {}
     text = tweet.get("full_text") or tweet.get("text") or ""
-    created = tweet.get("tweet_created_at", "")
-    
-    # 互动数据
-    retweets = tweet.get("retweet_count", 0)
-    likes = tweet.get("favorite_count", 0)
-    replies = tweet.get("reply_count", 0)
-    quotes = tweet.get("quote_count", 0)
-    views = tweet.get("views_count", 0)
-    bookmarks = tweet.get("bookmark_count", 0)
-    
-    # 用户信息
-    name = user.get("name", "Unknown")
-    screen_name = user.get("screen_name", "unknown")
-    followers = user.get("followers_count", 0)
-    
+    created = tweet.get("tweet_created_at") or ""
+
+    # 互动数据 - 防御 None 值
+    retweets = _safe_int(tweet.get("retweet_count"))
+    likes = _safe_int(tweet.get("favorite_count"))
+    replies = _safe_int(tweet.get("reply_count"))
+    quotes = _safe_int(tweet.get("quote_count"))
+    views = _safe_int(tweet.get("views_count"))
+    bookmarks = _safe_int(tweet.get("bookmark_count"))
+
+    # 用户信息 - 防御 None 值
+    name = user.get("name") or "Unknown"
+    screen_name = user.get("screen_name") or "unknown"
+    followers = _safe_int(user.get("followers_count"))
+
     lines = [
         f"@{screen_name} ({name}) · {created}",
         f"Followers: {followers:,}",
@@ -101,18 +114,21 @@ def format_tweet(tweet: dict) -> str:
 
 def format_user(user: dict) -> str:
     """将用户资料格式化为可读文本"""
+    if not user:
+        return "(未知用户)"
+
     lines = [
-        f"@{user.get('screen_name', '')} ({user.get('name', '')})",
-        f"Bio: {user.get('description', '')}",
-        f"Location: {user.get('location', '')}",
-        f"Followers: {user.get('followers_count', 0):,}",
-        f"Following: {user.get('friends_count', 0):,}",
-        f"Tweets: {user.get('statuses_count', 0):,}",
-        f"Likes: {user.get('favourites_count', 0):,}",
-        f"Created: {user.get('created_at', '')}",
+        f"@{user.get('screen_name') or ''} ({user.get('name') or ''})",
+        f"Bio: {user.get('description') or ''}",
+        f"Location: {user.get('location') or ''}",
+        f"Followers: {_safe_int(user.get('followers_count')):,}",
+        f"Following: {_safe_int(user.get('friends_count')):,}",
+        f"Tweets: {_safe_int(user.get('statuses_count')):,}",
+        f"Likes: {_safe_int(user.get('favourites_count')):,}",
+        f"Created: {user.get('created_at') or ''}",
         f"Verified: {user.get('verified', False)}",
-        f"User ID: {user.get('id_str', '')}",
-        f"URL: https://x.com/{user.get('screen_name', '')}",
+        f"User ID: {user.get('id_str') or ''}",
+        f"URL: https://x.com/{user.get('screen_name') or ''}",
     ]
     return "\n".join(lines)
 
@@ -168,7 +184,7 @@ async def search_tweets(params: SearchTweetsInput) -> str:
         if "error" in data:
             return f"搜索失败: {data['error']}"
 
-        tweets = data.get("tweets", [])
+        tweets = data.get("tweets") or []
         if not tweets:
             break
 
@@ -178,7 +194,7 @@ async def search_tweets(params: SearchTweetsInput) -> str:
             break
 
     if not all_tweets:
-        return f"未找到关于 '{params.query}' 的推文。"
+        return f"搜索完成，共 0 条结果。未找到关于 '{params.query}' 的推文。"
 
     results = [f"=== 搜索: {params.query} | 类型: {params.search_type} | 共 {len(all_tweets)} 条 ===\n"]
     for i, tweet in enumerate(all_tweets, 1):
@@ -192,7 +208,8 @@ async def search_tweets(params: SearchTweetsInput) -> str:
 class GetUserProfileInput(BaseModel):
     """获取用户资料的参数"""
     screen_name: str = Field(
-        description="Twitter 用户名 (不含@)，如 'elonmusk', 'VitalikButerin'"
+        validation_alias=AliasChoices("screen_name", "username"),
+        description="Twitter 用户名/handle (不含@)，如 'elonmusk', 'VitalikButerin'。也可用字段名 'username'。"
     )
 
 
@@ -217,7 +234,8 @@ async def get_user_profile(params: GetUserProfileInput) -> str:
 class GetUserTweetsInput(BaseModel):
     """获取用户推文的参数"""
     screen_name: str = Field(
-        description="Twitter 用户名 (不含@)"
+        validation_alias=AliasChoices("screen_name", "username"),
+        description="Twitter 用户名/handle (不含@)。也可用字段名 'username'。"
     )
     max_pages: int = Field(
         default=1,
@@ -268,7 +286,7 @@ async def get_user_tweets(params: GetUserTweetsInput) -> str:
         if "error" in data:
             return f"获取推文失败: {data['error']}"
 
-        tweets = data.get("tweets", [])
+        tweets = data.get("tweets") or []
         if not tweets:
             break
 
@@ -278,7 +296,7 @@ async def get_user_tweets(params: GetUserTweetsInput) -> str:
             break
 
     if not all_tweets:
-        return f"@{params.screen_name} 没有找到推文。"
+        return f"搜索完成，共 0 条结果。@{params.screen_name} 没有找到推文。"
 
     results = [
         f"=== @{params.screen_name} 的推文 | 共 {len(all_tweets)} 条 ===\n",
@@ -357,7 +375,7 @@ async def get_tweet_replies(params: GetTweetRepliesInput) -> str:
         if "error" in data:
             return f"获取回复失败: {data['error']}"
 
-        tweets = data.get("tweets", [])
+        tweets = data.get("tweets") or []
         if not tweets:
             break
 
@@ -367,7 +385,7 @@ async def get_tweet_replies(params: GetTweetRepliesInput) -> str:
             break
 
     if not all_replies:
-        return f"推文 {params.tweet_id} 没有找到回复。"
+        return f"搜索完成，共 0 条结果。推文 {params.tweet_id} 没有找到回复。"
 
     results = [f"=== 推文 {params.tweet_id} 的回复 | 共 {len(all_replies)} 条 ===\n"]
     for i, reply in enumerate(all_replies, 1):
@@ -417,7 +435,7 @@ async def get_community_tweets(params: GetCommunityTweetsInput) -> str:
         if "error" in data:
             return f"获取社区推文失败: {data['error']}"
 
-        tweets = data.get("tweets", [])
+        tweets = data.get("tweets") or []
         if not tweets:
             break
 
@@ -427,7 +445,7 @@ async def get_community_tweets(params: GetCommunityTweetsInput) -> str:
             break
 
     if not all_tweets:
-        return f"Community {params.community_id} 没有找到推文。"
+        return f"搜索完成，共 0 条结果。Community {params.community_id} 没有找到推文。"
 
     results = [f"=== Community {params.community_id} | 共 {len(all_tweets)} 条 ===\n"]
     for i, tweet in enumerate(all_tweets, 1):
